@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-const arraySize = 100 //Golang exports params with a leading capital letter so no ARRAY_SIZE convention
+const arraySize = 30_000 //Golang exports params with a leading capital letter so no ARRAY_SIZE convention
 const testIterations = 10
+const numberOfGoRoutines = 8
 
 var largestNumberGenerated = 0
 var twoDArrayRef *[arraySize][arraySize]int
@@ -57,7 +58,7 @@ func generate2DArray(emptyTwoDArrayRef *[arraySize][arraySize]int) int {
 func findLargestNumberInArraySerial(array *[arraySize][arraySize]int, largestNumberGenerated int) {
 	var startTime = getCurrentSystemTimeMillis()
 
-	var largestNumberFound = findLargestNumberInArraySerialImplementation(array)
+	var largestNumberFound = findLargestNumberInArrayRange(array, 0, len(array))
 
 	if largestNumberFound != largestNumberGenerated {
 		panic("largestNumberFound != largestNumberGenerated benchmark is broken")
@@ -80,20 +81,45 @@ func findLargestNumberInArrayParallel(array *[arraySize][arraySize]int, largestN
 }
 
 func findLargestNumberInArrayParallelImplementation(array *[arraySize][arraySize]int) int {
-	return 0
+	var largestNumbersFound [numberOfGoRoutines]chan int
+	for i := range largestNumbersFound {
+		largestNumbersFound[i] = make(chan int)
+	}
+
+	var scanRangeSize = len(array) / numberOfGoRoutines
+	for i := 0; i < numberOfGoRoutines; i++ { //split the problem up into several smaller scans in the range of x, but scan the full length in vertical slices
+		var startIndex = i * scanRangeSize
+		var endIndex = (i * scanRangeSize) + scanRangeSize
+		go findLargestNumberInArrayRangeParallel(array, startIndex, endIndex, largestNumbersFound[i])
+	}
+
+	var largestNumberFromAllGoRoutines = math.MinInt32
+	var ithLargestNumber int
+	for i := range largestNumbersFound {
+		ithLargestNumber = <-largestNumbersFound[i]
+		if ithLargestNumber > largestNumberFromAllGoRoutines {
+			largestNumberFromAllGoRoutines = ithLargestNumber
+		}
+	}
+
+	return largestNumberFromAllGoRoutines
 }
 
-func findLargestNumberInArraySerialImplementation(array *[arraySize][arraySize]int) int {
-	var largestNumber = math.MinInt32
-	for x := 0; x < len(array); x++ {
-		for y := 0; y < len(array[y]); y++ {
-			if largestNumber < array[x][y] {
-				largestNumber = array[x][y]
+func findLargestNumberInArrayRangeParallel(array *[arraySize][arraySize]int, startIndex int, endIndex int, largestNumber chan int) {
+	largestNumber <- findLargestNumberInArrayRange(array, startIndex, endIndex)
+}
+
+func findLargestNumberInArrayRange(array *[arraySize][arraySize]int, startIndex int, endIndex int) int {
+	var largestNumberInRange = math.MinInt32
+	for x := startIndex; x < endIndex; x++ {
+		for y := 0; y < len(array[x]); y++ {
+			if largestNumberInRange < array[x][y] {
+				largestNumberInRange = array[x][y]
 			}
 		}
 	}
 
-	return largestNumber
+	return largestNumberInRange
 }
 
 //https://stackoverflow.com/questions/24122821/go-time-now-unixnano-convert-to-milliseconds
